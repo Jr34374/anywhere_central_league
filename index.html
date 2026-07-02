@@ -1,0 +1,620 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>AR_demo</title>
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@ar-js-org/ar.js@3.4.7/aframe/build/aframe-ar.js"></script>
+  <style>
+    :root {
+      color-scheme: dark;
+      --panel: rgba(8, 13, 18, 0.78);
+      --panel-strong: rgba(8, 13, 18, 0.92);
+      --line: rgba(255, 255, 255, 0.16);
+      --text: #f7fbff;
+      --muted: #b8c3cc;
+      --accent: #20d6a4;
+      --warn: #ffca6b;
+      --danger: #ff7f7f;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #070b0f;
+      color: var(--text);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    button,
+    input,
+    textarea,
+    select {
+      font: inherit;
+    }
+
+    #ar-root,
+    .a-canvas,
+    a-scene {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    #hud {
+      position: fixed;
+      z-index: 20;
+      inset: env(safe-area-inset-top) 0 auto 0;
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+      pointer-events: none;
+    }
+
+    .topbar,
+    .distance-panel {
+      width: min(100%, 520px);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      backdrop-filter: blur(12px);
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
+    }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--warn);
+      box-shadow: 0 0 0 4px rgba(255, 202, 107, 0.16);
+    }
+
+    .status-dot.ready {
+      background: var(--accent);
+      box-shadow: 0 0 0 4px rgba(32, 214, 164, 0.18);
+    }
+
+    .status-dot.error {
+      background: var(--danger);
+      box-shadow: 0 0 0 4px rgba(255, 127, 127, 0.16);
+    }
+
+    #status-text {
+      min-width: 0;
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    #accuracy {
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .distance-panel {
+      align-self: start;
+      max-height: min(42vh, 330px);
+      overflow: auto;
+      padding: 10px;
+    }
+
+    .panel-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .distance-list {
+      display: grid;
+      gap: 6px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .distance-item {
+      display: grid;
+      grid-template-columns: 12px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+      min-height: 34px;
+      padding: 7px 8px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .team-color {
+      width: 12px;
+      height: 12px;
+      border-radius: 3px;
+    }
+
+    .stadium-name {
+      min-width: 0;
+      overflow-wrap: anywhere;
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .distance-value {
+      color: var(--accent);
+      font-variant-numeric: tabular-nums;
+      font-size: 13px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    #start-screen {
+      position: fixed;
+      z-index: 30;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background: linear-gradient(rgba(7, 11, 15, 0.72), rgba(7, 11, 15, 0.88)), #070b0f;
+    }
+
+    .start-panel {
+      width: min(100%, 420px);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel-strong);
+      padding: 20px;
+      box-shadow: 0 18px 50px rgba(0, 0, 0, 0.32);
+    }
+
+    .app-title {
+      margin: 0 0 8px;
+      font-size: 24px;
+      line-height: 1.2;
+    }
+
+    .app-copy {
+      margin: 0 0 16px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.65;
+    }
+
+    #start-button {
+      width: 100%;
+      min-height: 48px;
+      border: 0;
+      border-radius: 6px;
+      background: var(--accent);
+      color: #04100c;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    #start-button:disabled {
+      cursor: progress;
+      opacity: 0.72;
+    }
+
+    #error-message {
+      margin-top: 12px;
+      color: var(--danger);
+      font-size: 13px;
+      line-height: 1.6;
+      min-height: 1.6em;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    @media (max-width: 560px) {
+      #hud {
+        padding: 8px;
+      }
+
+      .topbar {
+        grid-template-columns: auto minmax(0, 1fr);
+      }
+
+      #accuracy {
+        grid-column: 2;
+      }
+
+      .distance-panel {
+        max-height: 38vh;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main id="ar-root" aria-label="AR表示領域"></main>
+
+  <section id="hud" aria-live="polite">
+    <div class="topbar">
+      <span id="status-dot" class="status-dot" aria-hidden="true"></span>
+      <div id="status-text">開始待ち</div>
+      <div id="accuracy">GPS: --</div>
+    </div>
+    <div class="distance-panel">
+      <div class="panel-title">
+        <span>セ・リーグ本拠地</span>
+        <span id="updated-at">未取得</span>
+      </div>
+      <ul id="distance-list" class="distance-list"></ul>
+    </div>
+  </section>
+
+  <section id="start-screen">
+    <div class="start-panel">
+      <h1 class="app-title">AR_demo</h1>
+      <p class="app-copy">カメラ、位置情報、デバイスの向きを許可すると、各球場の方角にARマーカーを表示します。</p>
+      <button id="start-button" type="button">開始</button>
+      <div id="error-message" role="alert"></div>
+    </div>
+  </section>
+
+  <script>
+    const stadiums = [
+      { name: "バンテリンドーム ナゴヤ", lat: 35.1859, lon: 136.9474, color: "#2f62ff" },
+      { name: "明治神宮野球場", lat: 35.6744, lon: 139.7170, color: "#31a94f" },
+      { name: "阪神甲子園球場", lat: 34.7213, lon: 135.3616, color: "#f4d03f" },
+      { name: "MAZDA Zoom-Zoom スタジアム広島", lat: 34.3919, lon: 132.4847, color: "#e63b3b" },
+      { name: "横浜スタジアム", lat: 35.4433, lon: 139.6401, color: "#2cb7df" },
+      { name: "東京ドーム", lat: 35.7056, lon: 139.7519, color: "#ff8b2d" }
+    ];
+
+    const appState = {
+      currentPosition: null,
+      watchId: null,
+      sceneStarted: false
+    };
+
+    const elements = {
+      arRoot: document.getElementById("ar-root"),
+      startScreen: document.getElementById("start-screen"),
+      startButton: document.getElementById("start-button"),
+      errorMessage: document.getElementById("error-message"),
+      statusDot: document.getElementById("status-dot"),
+      statusText: document.getElementById("status-text"),
+      accuracy: document.getElementById("accuracy"),
+      updatedAt: document.getElementById("updated-at"),
+      distanceList: document.getElementById("distance-list")
+    };
+
+    renderDistanceList();
+    registerAFrameComponents();
+
+    elements.startButton.addEventListener("click", startApp);
+
+    async function startApp() {
+      elements.startButton.disabled = true;
+      elements.errorMessage.textContent = "";
+      setStatus("権限を確認中", "waiting");
+
+      try {
+        await ensureSecureContext();
+        await requestOrientationPermission();
+        await requestCameraPermission();
+        await requestFirstLocation();
+        startLocationWatch();
+        createArScene();
+        elements.startScreen.classList.add("hidden");
+        setStatus("AR起動中", "ready");
+      } catch (error) {
+        console.error(error);
+        elements.startButton.disabled = false;
+        const message = error && error.message ? error.message : "起動できませんでした。";
+        elements.errorMessage.textContent = message;
+        setStatus("起動エラー", "error");
+      }
+    }
+
+    async function ensureSecureContext() {
+      // カメラとGPSは、HTTPSまたはlocalhostなどの安全なオリジンでのみ利用できる。
+      if (!window.isSecureContext) {
+        throw new Error("HTTPSまたはlocalhostで開いてください。カメラと位置情報は安全な接続でのみ利用できます。");
+      }
+    }
+
+    async function requestCameraPermission() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("このブラウザはカメラ取得に対応していません。");
+      }
+
+      // ユーザー操作に続けてカメラ許可を求め、許可後はいったん停止する。
+      // 実際のカメラ映像はAR.jsがシーン起動時に取得して背景へ描画する。
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: { ideal: "environment" } }
+      });
+      stream.getTracks().forEach((track) => track.stop());
+    }
+
+    async function requestOrientationPermission() {
+      // iOS SafariではDeviceOrientationEvent.requestPermission()がユーザー操作中に必要になる。
+      if (
+        typeof DeviceOrientationEvent !== "undefined" &&
+        typeof DeviceOrientationEvent.requestPermission === "function"
+      ) {
+        const result = await DeviceOrientationEvent.requestPermission();
+        if (result !== "granted") {
+          throw new Error("デバイスの向きの取得が許可されませんでした。");
+        }
+      }
+    }
+
+    function requestFirstLocation() {
+      if (!navigator.geolocation) {
+        return Promise.reject(new Error("このブラウザは位置情報に対応していません。"));
+      }
+
+      // 初回の現在地を取得し、距離表示をすぐ更新できる状態にする。
+      return new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            updateCurrentPosition(position);
+            resolve(position);
+          },
+          () => reject(new Error("位置情報が取得できませんでした。GPSの利用を許可してください。")),
+          {
+            enableHighAccuracy: true,
+            timeout: 15000,
+            maximumAge: 0
+          }
+        );
+      });
+    }
+
+    function startLocationWatch() {
+      if (appState.watchId !== null) {
+        return;
+      }
+
+      // GPSの変化を監視し、現在地から各球場までの距離を継続的に再計算する。
+      appState.watchId = navigator.geolocation.watchPosition(
+        updateCurrentPosition,
+        (error) => {
+          console.warn(error);
+          setStatus("GPS更新待ち", "waiting");
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 15000,
+          maximumAge: 3000
+        }
+      );
+    }
+
+    function updateCurrentPosition(position) {
+      appState.currentPosition = {
+        lat: position.coords.latitude,
+        lon: position.coords.longitude,
+        accuracy: position.coords.accuracy
+      };
+
+      elements.accuracy.textContent = `GPS: ±${Math.round(position.coords.accuracy)}m`;
+      elements.updatedAt.textContent = new Date().toLocaleTimeString("ja-JP", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit"
+      });
+      setStatus("現在地を取得中", "ready");
+      renderDistanceList();
+    }
+
+    function createArScene() {
+      if (appState.sceneStarted) {
+        return;
+      }
+
+      appState.sceneStarted = true;
+      const scene = document.createElement("a-scene");
+      scene.setAttribute("embedded", "");
+      scene.setAttribute("renderer", "logarithmicDepthBuffer: true; antialias: true; alpha: true");
+      scene.setAttribute("vr-mode-ui", "enabled: false");
+      scene.setAttribute("device-orientation-permission-ui", "enabled: false");
+      scene.setAttribute("arjs", "sourceType: webcam; videoTexture: true; debugUIEnabled: false;");
+
+      // gps-new-cameraが端末のGPSと向きをAR.jsへ渡し、現実の方角に合わせて3D空間を動かす。
+      const camera = document.createElement("a-camera");
+      camera.setAttribute("id", "ar-camera");
+      camera.setAttribute("camera", "near: 0.1; far: 900000");
+      camera.setAttribute("look-controls-enabled", "false");
+      camera.setAttribute("arjs-device-orientation-controls", "smoothingFactor: 0.1");
+      camera.setAttribute("gps-new-camera", "gpsMinDistance: 5; positionMinAccuracy: 500; gpsTimeInterval: 1000");
+      scene.appendChild(camera);
+
+      const light = document.createElement("a-entity");
+      light.setAttribute("light", "type: ambient; color: #ffffff; intensity: 1");
+      scene.appendChild(light);
+
+      stadiums.forEach((stadium, index) => {
+        scene.appendChild(createStadiumEntity(stadium, index));
+      });
+
+      elements.arRoot.appendChild(scene);
+    }
+
+    function createStadiumEntity(stadium, index) {
+      const marker = document.createElement("a-entity");
+
+      // gps-new-entity-placeに緯度経度を設定すると、その実世界座標へARオブジェクトが配置される。
+      marker.setAttribute("gps-new-entity-place", `latitude: ${stadium.lat}; longitude: ${stadium.lon}`);
+      marker.setAttribute("stadium-scale", `latitude: ${stadium.lat}; longitude: ${stadium.lon}`);
+
+      const box = document.createElement("a-box");
+      box.setAttribute("position", "0 14 0");
+      box.setAttribute("width", "1.6");
+      box.setAttribute("height", "1.6");
+      box.setAttribute("depth", "1.6");
+      box.setAttribute("rotation", "0 45 0");
+      box.setAttribute("material", `color: ${stadium.color}; opacity: 0.92; roughness: 0.35; metalness: 0.08`);
+      box.setAttribute("animation", {
+        property: "rotation",
+        to: "0 405 0",
+        loop: true,
+        dur: 7000 + index * 500,
+        easing: "linear"
+      });
+
+      const label = document.createElement("a-text");
+      label.setAttribute("value", stadium.name);
+      label.setAttribute("position", "0 18 0");
+      label.setAttribute("align", "center");
+      label.setAttribute("anchor", "center");
+      label.setAttribute("baseline", "center");
+      label.setAttribute("scale", "3 3 3");
+      label.setAttribute("color", "#ffffff");
+      label.setAttribute("side", "double");
+      label.setAttribute("font", "kelsonsans");
+      label.setAttribute("face-camera", "");
+
+      const ring = document.createElement("a-torus");
+      ring.setAttribute("position", "0 14 0");
+      ring.setAttribute("radius", "1.7");
+      ring.setAttribute("radius-tubular", "0.045");
+      ring.setAttribute("rotation", "90 0 0");
+      ring.setAttribute("material", `color: ${stadium.color}; opacity: 0.8`);
+
+      marker.appendChild(ring);
+      marker.appendChild(box);
+      marker.appendChild(label);
+      return marker;
+    }
+
+    function registerAFrameComponents() {
+      if (!window.AFRAME) {
+        return;
+      }
+
+      AFRAME.registerComponent("face-camera", {
+        tick: function () {
+          const camera = document.querySelector("#ar-camera");
+          if (!camera) {
+            return;
+          }
+
+          // ラベルを常にカメラへ向け、端末を回しても球場名を読みやすくする。
+          const cameraWorldPosition = new THREE.Vector3();
+          camera.object3D.getWorldPosition(cameraWorldPosition);
+          this.el.object3D.lookAt(cameraWorldPosition);
+        }
+      });
+
+      AFRAME.registerComponent("stadium-scale", {
+        schema: {
+          latitude: { type: "number" },
+          longitude: { type: "number" }
+        },
+        tick: function () {
+          if (!appState.currentPosition) {
+            return;
+          }
+
+          // 遠方の球場でも見失いにくいよう、現在地からの距離に応じてマーカーを少し拡大する。
+          const distance = getDistanceMeters(
+            appState.currentPosition.lat,
+            appState.currentPosition.lon,
+            this.data.latitude,
+            this.data.longitude
+          );
+          const scale = clamp(distance / 520, 18, 900);
+          this.el.object3D.scale.set(scale, scale, scale);
+        }
+      });
+    }
+
+    function renderDistanceList() {
+      const rows = stadiums
+        .map((stadium) => {
+          const distance = appState.currentPosition
+            ? getDistanceMeters(appState.currentPosition.lat, appState.currentPosition.lon, stadium.lat, stadium.lon)
+            : null;
+          return { ...stadium, distance };
+        })
+        .sort((a, b) => {
+          if (a.distance === null || b.distance === null) {
+            return 0;
+          }
+          return a.distance - b.distance;
+        });
+
+      elements.distanceList.innerHTML = "";
+      rows.forEach((stadium) => {
+        const item = document.createElement("li");
+        item.className = "distance-item";
+        item.innerHTML = `
+          <span class="team-color" style="background:${stadium.color}"></span>
+          <span class="stadium-name">${stadium.name}</span>
+          <span class="distance-value">${formatDistance(stadium.distance)}</span>
+        `;
+        elements.distanceList.appendChild(item);
+      });
+    }
+
+    function getDistanceMeters(lat1, lon1, lat2, lon2) {
+      // haversine式で地球表面上の2点間距離を計算する。
+      const earthRadius = 6371008.8;
+      const phi1 = toRadians(lat1);
+      const phi2 = toRadians(lat2);
+      const deltaPhi = toRadians(lat2 - lat1);
+      const deltaLambda = toRadians(lon2 - lon1);
+      const a =
+        Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+        Math.cos(phi1) * Math.cos(phi2) *
+        Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return earthRadius * c;
+    }
+
+    function toRadians(degrees) {
+      return degrees * Math.PI / 180;
+    }
+
+    function clamp(value, min, max) {
+      return Math.min(Math.max(value, min), max);
+    }
+
+    function formatDistance(distance) {
+      if (distance === null) {
+        return "--";
+      }
+
+      if (distance < 1000) {
+        return `${Math.round(distance)} m`;
+      }
+
+      return `${(distance / 1000).toFixed(distance < 100000 ? 1 : 0)} km`;
+    }
+
+    function setStatus(text, state) {
+      elements.statusText.textContent = text;
+      elements.statusDot.classList.toggle("ready", state === "ready");
+      elements.statusDot.classList.toggle("error", state === "error");
+    }
+  </script>
+</body>
+</html>
