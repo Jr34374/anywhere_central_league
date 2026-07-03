@@ -56,13 +56,13 @@
       z-index: 20;
       inset: env(safe-area-inset-top) 0 auto 0;
       display: grid;
-      gap: 8px;
+      gap: 6px;
+      justify-items: start;
       padding: 10px;
       pointer-events: none;
     }
 
-    .topbar,
-    .distance-panel {
+    .topbar {
       width: min(100%, 520px);
       border: 1px solid var(--line);
       border-radius: 8px;
@@ -111,26 +111,21 @@
     }
 
     .distance-panel {
-      align-self: start;
-      max-height: min(42vh, 330px);
-      overflow: auto;
-      padding: 10px;
-    }
-
-    .panel-title {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      margin-bottom: 8px;
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 700;
+      width: fit-content;
+      max-width: calc(100vw - 20px);
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      backdrop-filter: blur(12px);
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
+      padding: 5px;
     }
 
     .distance-list {
-      display: grid;
-      gap: 6px;
+      display: flex;
+      flex-wrap: nowrap;
+      gap: 5px;
       margin: 0;
       padding: 0;
       list-style: none;
@@ -138,34 +133,28 @@
 
     .distance-item {
       display: grid;
-      grid-template-columns: 12px minmax(0, 1fr) auto;
+      grid-template-columns: 10px auto;
       align-items: center;
-      gap: 8px;
-      min-height: 34px;
-      padding: 7px 8px;
+      gap: 5px;
+      min-width: 66px;
+      min-height: 28px;
+      padding: 5px 7px;
       border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 6px;
+      border-radius: 999px;
       background: rgba(255, 255, 255, 0.06);
     }
 
     .team-color {
-      width: 12px;
-      height: 12px;
-      border-radius: 3px;
-    }
-
-    .stadium-name {
-      min-width: 0;
-      overflow-wrap: anywhere;
-      color: var(--text);
-      font-size: 13px;
-      line-height: 1.35;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.15);
     }
 
     .distance-value {
-      color: var(--accent);
+      color: var(--text);
       font-variant-numeric: tabular-nums;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 700;
       white-space: nowrap;
     }
@@ -243,8 +232,12 @@
         grid-column: 2;
       }
 
+      .topbar {
+        width: calc(100vw - 16px);
+      }
+
       .distance-panel {
-        max-height: 38vh;
+        max-width: calc(100vw - 16px);
       }
     }
   </style>
@@ -259,10 +252,6 @@
       <div id="accuracy">GPS: --</div>
     </div>
     <div class="distance-panel">
-      <div class="panel-title">
-        <span>セ・リーグ本拠地</span>
-        <span id="updated-at">未取得</span>
-      </div>
       <ul id="distance-list" class="distance-list"></ul>
     </div>
   </section>
@@ -307,7 +296,6 @@
       statusDot: document.getElementById("status-dot"),
       statusText: document.getElementById("status-text"),
       accuracy: document.getElementById("accuracy"),
-      updatedAt: document.getElementById("updated-at"),
       distanceList: document.getElementById("distance-list")
     };
 
@@ -447,11 +435,6 @@
       };
 
       updateSensorText();
-      elements.updatedAt.textContent = new Date().toLocaleTimeString("ja-JP", {
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit"
-      });
       setStatus("現在地を取得中", "ready");
       renderDistanceList();
       updateDirectionalMarkers();
@@ -562,12 +545,14 @@
 
       elements.distanceList.innerHTML = "";
       rows.forEach((stadium) => {
+        const distanceText = formatDistance(stadium.distance);
         const item = document.createElement("li");
         item.className = "distance-item";
+        item.title = `${stadium.name}: ${distanceText}`;
+        item.setAttribute("aria-label", `${stadium.name}: ${distanceText}`);
         item.innerHTML = `
           <span class="team-color" style="background:${stadium.color}"></span>
-          <span class="stadium-name">${stadium.name}</span>
-          <span class="distance-value">${formatDistance(stadium.distance)}</span>
+          <span class="distance-value">${distanceText}</span>
         `;
         elements.distanceList.appendChild(item);
       });
