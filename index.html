@@ -278,13 +278,18 @@
     const DIRECTION_MARKER_DISTANCE = 14;
     const DIRECTION_MARKER_HEIGHT = 0;
     const SPHERE_RADIUS = 0.38;
+    const HEADING_SMOOTHING = 0.28;
+    const MARKER_POSITION_SMOOTHING = 0.18;
 
     const appState = {
       currentPosition: null,
       heading: null,
+      headingSourcePriority: 0,
+      headingSourceUpdatedAt: 0,
       watchId: null,
       sceneStarted: false,
       headingWatchStarted: false,
+      markerAnimationStarted: false,
       stadiumMarkers: new Map()
     };
 
@@ -371,12 +376,20 @@
       // スマートフォンのコンパス方位を取得し、カメラが向いている方角を更新する。
       // iOSはwebkitCompassHeading、Android Chromeなどはalphaを使う。
       const updateHeading = (event) => {
-        const heading = getCompassHeading(event);
-        if (heading === null) {
+        const reading = getCompassHeading(event);
+        if (reading === null) {
           return;
         }
 
-        appState.heading = heading;
+        const now = performance.now();
+        const currentSourceIsFresh = now - appState.headingSourceUpdatedAt < 1200;
+        if (reading.priority < appState.headingSourcePriority && currentSourceIsFresh) {
+          return;
+        }
+
+        appState.headingSourcePriority = reading.priority;
+        appState.headingSourceUpdatedAt = now;
+        appState.heading = smoothHeading(appState.heading, reading.value, HEADING_SMOOTHING);
         updateSensorText();
         updateDirectionalMarkers();
       };
@@ -466,17 +479,18 @@
       light.setAttribute("light", "type: ambient; color: #ffffff; intensity: 1");
       scene.appendChild(light);
 
-      stadiums.forEach((stadium, index) => {
-        const marker = createStadiumEntity(stadium, index);
+      stadiums.forEach((stadium) => {
+        const marker = createStadiumEntity(stadium);
         appState.stadiumMarkers.set(stadium.name, marker);
         scene.appendChild(marker);
       });
 
       elements.arRoot.appendChild(scene);
+      startMarkerAnimationLoop();
       updateDirectionalMarkers();
     }
 
-    function createStadiumEntity(stadium, index) {
+    function createStadiumEntity(stadium) {
       const marker = document.createElement("a-entity");
       marker.setAttribute("visible", "false");
 
@@ -484,15 +498,7 @@
       sphere.setAttribute("radius", String(SPHERE_RADIUS));
       sphere.setAttribute("segments-width", "32");
       sphere.setAttribute("segments-height", "16");
-      sphere.setAttribute("material", `color: ${stadium.color}; emissive: ${stadium.color}; emissiveIntensity: 0.28; roughness: 0.25`);
-      sphere.setAttribute("animation", {
-        property: "scale",
-        dir: "alternate",
-        to: "1.18 1.18 1.18",
-        loop: true,
-        dur: 1200 + index * 120,
-        easing: "easeInOutSine"
-      });
+      sphere.setAttribute("material", `color: ${stadium.color}; emissive: ${stadium.color}; emissiveIntensity: 0.2; roughness: 0.25; transparent: true; opacity: 0.96; depthTest: false; depthWrite: false`);
 
       marker.appendChild(sphere);
       return marker;
@@ -500,7 +506,11 @@
 
     function updateDirectionalMarkers() {
       if (!appState.sceneStarted || !appState.currentPosition || appState.heading === null) {
-        appState.stadiumMarkers.forEach((marker) => marker.setAttribute("visible", "false"));
+        appState.stadiumMarkers.forEach((marker) => {
+          marker.object3D.visible = false;
+          marker.object3D.userData.targetPosition = null;
+          marker.object3D.userData.positionReady = false;
+        });
         return;
       }
 
@@ -523,9 +533,45 @@
         const x = Math.sin(radians) * DIRECTION_MARKER_DISTANCE;
         const z = -Math.cos(radians) * DIRECTION_MARKER_DISTANCE;
 
-        marker.setAttribute("position", `${x.toFixed(3)} ${DIRECTION_MARKER_HEIGHT} ${z.toFixed(3)}`);
-        marker.setAttribute("visible", "true");
+        marker.object3D.userData.targetPosition = {
+          x,
+          y: DIRECTION_MARKER_HEIGHT,
+          z
+        };
+
+        if (!marker.object3D.userData.positionReady) {
+          marker.object3D.position.set(x, DIRECTION_MARKER_HEIGHT, z);
+          marker.object3D.userData.positionReady = true;
+        }
+
+        marker.object3D.visible = true;
       });
+    }
+
+    function startMarkerAnimationLoop() {
+      if (appState.markerAnimationStarted) {
+        return;
+      }
+
+      appState.markerAnimationStarted = true;
+
+      const animate = () => {
+        appState.stadiumMarkers.forEach((marker) => {
+          const target = marker.object3D.userData.targetPosition;
+          if (!target || !marker.object3D.visible) {
+            return;
+          }
+
+          // 方位センサーの値は細かく揺れやすいので、描画フレームごとに位置を補間してチラつきを抑える。
+          marker.object3D.position.x += (target.x - marker.object3D.position.x) * MARKER_POSITION_SMOOTHING;
+          marker.object3D.position.y += (target.y - marker.object3D.position.y) * MARKER_POSITION_SMOOTHING;
+          marker.object3D.position.z += (target.z - marker.object3D.position.z) * MARKER_POSITION_SMOOTHING;
+        });
+
+        requestAnimationFrame(animate);
+      };
+
+      requestAnimationFrame(animate);
     }
 
     function renderDistanceList() {
@@ -587,14 +633,37 @@
 
     function getCompassHeading(event) {
       if (typeof event.webkitCompassHeading === "number") {
-        return normalizeDegrees(event.webkitCompassHeading);
+        return {
+          value: normalizeDegrees(event.webkitCompassHeading),
+          priority: 3
+        };
+      }
+
+      if (event.absolute === true && typeof event.alpha === "number") {
+        return {
+          value: normalizeDegrees(360 - event.alpha),
+          priority: 2
+        };
       }
 
       if (typeof event.alpha === "number") {
-        return normalizeDegrees(360 - event.alpha);
+        return {
+          value: normalizeDegrees(360 - event.alpha),
+          priority: 1
+        };
       }
 
       return null;
+    }
+
+    function smoothHeading(previousHeading, nextHeading, amount) {
+      if (previousHeading === null) {
+        return nextHeading;
+      }
+
+      // 359度から0度へまたぐ場合も短い方向へ補間する。
+      const delta = normalizeDegrees(nextHeading - previousHeading + 180) - 180;
+      return normalizeDegrees(previousHeading + delta * amount);
     }
 
     function updateSensorText() {
