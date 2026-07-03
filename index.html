@@ -279,17 +279,24 @@
   <script>
     const stadiums = [
       { name: "バンテリンドーム ナゴヤ", lat: 35.1859, lon: 136.9474, color: "#2f62ff" },
-      { name: "明治神宮野球場", lat: 35.6744, lon: 139.7170, color: "#31a94f" },
-      { name: "阪神甲子園球場", lat: 34.7213, lon: 135.3616, color: "#f4d03f" },
-      { name: "MAZDA Zoom-Zoom スタジアム広島", lat: 34.3919, lon: 132.4847, color: "#e63b3b" },
-      { name: "横浜スタジアム", lat: 35.4433, lon: 139.6401, color: "#2cb7df" },
-      { name: "東京ドーム", lat: 35.7056, lon: 139.7519, color: "#ff8b2d" }
+      { name: "阪神甲子園球場", lat: 34.7213, lon: 135.3616, color: "#ffd400" },
+      { name: "MAZDA Zoom-Zoom スタジアム広島", lat: 34.3919, lon: 132.4847, color: "#e32929" },
+      { name: "明治神宮野球場", lat: 35.6744, lon: 139.7170, color: "#22b14c" },
+      { name: "横浜スタジアム", lat: 35.4433, lon: 139.6401, color: "#35c7e8" },
+      { name: "東京ドーム", lat: 35.7056, lon: 139.7519, color: "#ff8a1f" }
     ];
+
+    const DIRECTION_MARKER_DISTANCE = 14;
+    const DIRECTION_MARKER_HEIGHT = 0;
+    const SPHERE_RADIUS = 0.38;
 
     const appState = {
       currentPosition: null,
+      heading: null,
       watchId: null,
-      sceneStarted: false
+      sceneStarted: false,
+      headingWatchStarted: false,
+      stadiumMarkers: new Map()
     };
 
     const elements = {
@@ -305,7 +312,6 @@
     };
 
     renderDistanceList();
-    registerAFrameComponents();
 
     elements.startButton.addEventListener("click", startApp);
 
@@ -318,6 +324,7 @@
         await ensureSecureContext();
         await requestOrientationPermission();
         await requestCameraPermission();
+        startHeadingWatch();
         await requestFirstLocation();
         startLocationWatch();
         createArScene();
@@ -364,6 +371,30 @@
           throw new Error("デバイスの向きの取得が許可されませんでした。");
         }
       }
+    }
+
+    function startHeadingWatch() {
+      if (appState.headingWatchStarted) {
+        return;
+      }
+
+      appState.headingWatchStarted = true;
+
+      // スマートフォンのコンパス方位を取得し、カメラが向いている方角を更新する。
+      // iOSはwebkitCompassHeading、Android Chromeなどはalphaを使う。
+      const updateHeading = (event) => {
+        const heading = getCompassHeading(event);
+        if (heading === null) {
+          return;
+        }
+
+        appState.heading = heading;
+        updateSensorText();
+        updateDirectionalMarkers();
+      };
+
+      window.addEventListener("deviceorientationabsolute", updateHeading, true);
+      window.addEventListener("deviceorientation", updateHeading, true);
     }
 
     function requestFirstLocation() {
@@ -415,7 +446,7 @@
         accuracy: position.coords.accuracy
       };
 
-      elements.accuracy.textContent = `GPS: ±${Math.round(position.coords.accuracy)}m`;
+      updateSensorText();
       elements.updatedAt.textContent = new Date().toLocaleTimeString("ja-JP", {
         hour: "2-digit",
         minute: "2-digit",
@@ -423,6 +454,7 @@
       });
       setStatus("現在地を取得中", "ready");
       renderDistanceList();
+      updateDirectionalMarkers();
     }
 
     function createArScene() {
@@ -438,13 +470,13 @@
       scene.setAttribute("device-orientation-permission-ui", "enabled: false");
       scene.setAttribute("arjs", "sourceType: webcam; videoTexture: true; debugUIEnabled: false;");
 
-      // gps-new-cameraが端末のGPSと向きをAR.jsへ渡し、現実の方角に合わせて3D空間を動かす。
+      // カメラ映像はAR.jsが背景に描画する。球体の位置は下の方位角計算で手動更新する。
       const camera = document.createElement("a-camera");
       camera.setAttribute("id", "ar-camera");
-      camera.setAttribute("camera", "near: 0.1; far: 900000");
-      camera.setAttribute("look-controls-enabled", "false");
-      camera.setAttribute("arjs-device-orientation-controls", "smoothingFactor: 0.1");
-      camera.setAttribute("gps-new-camera", "gpsMinDistance: 5; positionMinAccuracy: 500; gpsTimeInterval: 1000");
+      camera.setAttribute("camera", "near: 0.1; far: 1000");
+      camera.setAttribute("look-controls", "enabled: false");
+      camera.setAttribute("wasd-controls", "enabled: false");
+      camera.setAttribute("position", "0 0 0");
       scene.appendChild(camera);
 
       const light = document.createElement("a-entity");
@@ -452,98 +484,64 @@
       scene.appendChild(light);
 
       stadiums.forEach((stadium, index) => {
-        scene.appendChild(createStadiumEntity(stadium, index));
+        const marker = createStadiumEntity(stadium, index);
+        appState.stadiumMarkers.set(stadium.name, marker);
+        scene.appendChild(marker);
       });
 
       elements.arRoot.appendChild(scene);
+      updateDirectionalMarkers();
     }
 
     function createStadiumEntity(stadium, index) {
       const marker = document.createElement("a-entity");
+      marker.setAttribute("visible", "false");
 
-      // gps-new-entity-placeに緯度経度を設定すると、その実世界座標へARオブジェクトが配置される。
-      marker.setAttribute("gps-new-entity-place", `latitude: ${stadium.lat}; longitude: ${stadium.lon}`);
-      marker.setAttribute("stadium-scale", `latitude: ${stadium.lat}; longitude: ${stadium.lon}`);
-
-      const box = document.createElement("a-box");
-      box.setAttribute("position", "0 14 0");
-      box.setAttribute("width", "1.6");
-      box.setAttribute("height", "1.6");
-      box.setAttribute("depth", "1.6");
-      box.setAttribute("rotation", "0 45 0");
-      box.setAttribute("material", `color: ${stadium.color}; opacity: 0.92; roughness: 0.35; metalness: 0.08`);
-      box.setAttribute("animation", {
-        property: "rotation",
-        to: "0 405 0",
+      const sphere = document.createElement("a-sphere");
+      sphere.setAttribute("radius", String(SPHERE_RADIUS));
+      sphere.setAttribute("segments-width", "32");
+      sphere.setAttribute("segments-height", "16");
+      sphere.setAttribute("material", `color: ${stadium.color}; emissive: ${stadium.color}; emissiveIntensity: 0.28; roughness: 0.25`);
+      sphere.setAttribute("animation", {
+        property: "scale",
+        dir: "alternate",
+        to: "1.18 1.18 1.18",
         loop: true,
-        dur: 7000 + index * 500,
-        easing: "linear"
+        dur: 1200 + index * 120,
+        easing: "easeInOutSine"
       });
 
-      const label = document.createElement("a-text");
-      label.setAttribute("value", stadium.name);
-      label.setAttribute("position", "0 18 0");
-      label.setAttribute("align", "center");
-      label.setAttribute("anchor", "center");
-      label.setAttribute("baseline", "center");
-      label.setAttribute("scale", "3 3 3");
-      label.setAttribute("color", "#ffffff");
-      label.setAttribute("side", "double");
-      label.setAttribute("font", "kelsonsans");
-      label.setAttribute("face-camera", "");
-
-      const ring = document.createElement("a-torus");
-      ring.setAttribute("position", "0 14 0");
-      ring.setAttribute("radius", "1.7");
-      ring.setAttribute("radius-tubular", "0.045");
-      ring.setAttribute("rotation", "90 0 0");
-      ring.setAttribute("material", `color: ${stadium.color}; opacity: 0.8`);
-
-      marker.appendChild(ring);
-      marker.appendChild(box);
-      marker.appendChild(label);
+      marker.appendChild(sphere);
       return marker;
     }
 
-    function registerAFrameComponents() {
-      if (!window.AFRAME) {
+    function updateDirectionalMarkers() {
+      if (!appState.sceneStarted || !appState.currentPosition || appState.heading === null) {
+        appState.stadiumMarkers.forEach((marker) => marker.setAttribute("visible", "false"));
         return;
       }
 
-      AFRAME.registerComponent("face-camera", {
-        tick: function () {
-          const camera = document.querySelector("#ar-camera");
-          if (!camera) {
-            return;
-          }
-
-          // ラベルを常にカメラへ向け、端末を回しても球場名を読みやすくする。
-          const cameraWorldPosition = new THREE.Vector3();
-          camera.object3D.getWorldPosition(cameraWorldPosition);
-          this.el.object3D.lookAt(cameraWorldPosition);
+      stadiums.forEach((stadium) => {
+        const marker = appState.stadiumMarkers.get(stadium.name);
+        if (!marker) {
+          return;
         }
-      });
 
-      AFRAME.registerComponent("stadium-scale", {
-        schema: {
-          latitude: { type: "number" },
-          longitude: { type: "number" }
-        },
-        tick: function () {
-          if (!appState.currentPosition) {
-            return;
-          }
+        // 現在地から球場への方位角と、スマホカメラが向いている方位角の差を求める。
+        // 差が0度なら画面中央の前方、90度なら右、180度なら背面に球体を置く。
+        const stadiumBearing = getBearingDegrees(
+          appState.currentPosition.lat,
+          appState.currentPosition.lon,
+          stadium.lat,
+          stadium.lon
+        );
+        const relativeBearing = normalizeDegrees(stadiumBearing - appState.heading);
+        const radians = toRadians(relativeBearing);
+        const x = Math.sin(radians) * DIRECTION_MARKER_DISTANCE;
+        const z = -Math.cos(radians) * DIRECTION_MARKER_DISTANCE;
 
-          // 遠方の球場でも見失いにくいよう、現在地からの距離に応じてマーカーを少し拡大する。
-          const distance = getDistanceMeters(
-            appState.currentPosition.lat,
-            appState.currentPosition.lon,
-            this.data.latitude,
-            this.data.longitude
-          );
-          const scale = clamp(distance / 520, 18, 900);
-          this.el.object3D.scale.set(scale, scale, scale);
-        }
+        marker.setAttribute("position", `${x.toFixed(3)} ${DIRECTION_MARKER_HEIGHT} ${z.toFixed(3)}`);
+        marker.setAttribute("visible", "true");
       });
     }
 
@@ -590,12 +588,47 @@
       return earthRadius * c;
     }
 
-    function toRadians(degrees) {
-      return degrees * Math.PI / 180;
+    function getBearingDegrees(lat1, lon1, lat2, lon2) {
+      // 現在地から目的地への初期方位角を計算する。0度が北、90度が東。
+      const phi1 = toRadians(lat1);
+      const phi2 = toRadians(lat2);
+      const deltaLambda = toRadians(lon2 - lon1);
+      const y = Math.sin(deltaLambda) * Math.cos(phi2);
+      const x =
+        Math.cos(phi1) * Math.sin(phi2) -
+        Math.sin(phi1) * Math.cos(phi2) * Math.cos(deltaLambda);
+      return normalizeDegrees(Math.atan2(y, x) * 180 / Math.PI);
     }
 
-    function clamp(value, min, max) {
-      return Math.min(Math.max(value, min), max);
+    function getCompassHeading(event) {
+      if (typeof event.webkitCompassHeading === "number") {
+        return normalizeDegrees(event.webkitCompassHeading);
+      }
+
+      if (typeof event.alpha === "number") {
+        return normalizeDegrees(360 - event.alpha);
+      }
+
+      return null;
+    }
+
+    function updateSensorText() {
+      const gpsText = appState.currentPosition
+        ? `GPS: ±${Math.round(appState.currentPosition.accuracy)}m`
+        : "GPS: --";
+      const headingText = appState.heading === null
+        ? "方位: --"
+        : `方位: ${Math.round(appState.heading)}°`;
+
+      elements.accuracy.textContent = `${gpsText} / ${headingText}`;
+    }
+
+    function normalizeDegrees(degrees) {
+      return (degrees % 360 + 360) % 360;
+    }
+
+    function toRadians(degrees) {
+      return degrees * Math.PI / 180;
     }
 
     function formatDistance(distance) {
